@@ -6,11 +6,11 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 from gi.repository import Gst
 
 from chunk_writer import ChunkWriter
+from h264_chunk_analyzer import analyze_h264_chunk
 from h264_utils import has_idr_nal
 
 
@@ -23,7 +23,7 @@ class CameraStream:
         self._logger = logger
         self._writer = ChunkWriter(output_dir=output_dir, camera_name=name)
 
-        self.current_chunk_timestamp: Optional[int] = None
+        self.current_chunk_timestamp = None
         self.skip_count = 0
         self.first_idr_seen = False
         self.frame_count = 0
@@ -32,7 +32,7 @@ class CameraStream:
         self._running = False
         self._connected = False
         self._reconnect_event = threading.Event()
-        self._reconnect_thread = threading.Thread(target=self._reconnect_loop, name=f"reconnect-{name}", daemon=True)
+        self._reconnect_thread = threading.Thread(target=self._reconnect_loop, name="reconnect-{0}".format(name), daemon=True)
 
         self._pipeline = self._build_pipeline()
         self._bus = self._pipeline.get_bus()
@@ -56,17 +56,13 @@ class CameraStream:
 
         self._pipeline.set_state(Gst.State.NULL)
         with self._lock:
-            final_path = self._writer.close_and_finalize(self.skip_count)
-            if final_path is not None:
-                self._logger.info("chunk closed camera=%s file=%s", self.name, final_path.name)
+            self._close_and_finalize_active_chunk()
 
     def rotate_event(self, timestamp_ms: int) -> None:
         """Rotate chunk file in global scheduler order."""
         with self._lock:
             if self.current_chunk_timestamp is not None:
-                closed = self._writer.close_and_finalize(self.skip_count)
-                if closed is not None:
-                    self._logger.info("chunk closed camera=%s file=%s", self.name, closed.name)
+                self._close_and_finalize_active_chunk()
 
             self._writer.open_chunk(timestamp_ms)
             self.current_chunk_timestamp = timestamp_ms
@@ -75,16 +71,51 @@ class CameraStream:
             self.frame_count = 0
             self._logger.info("chunk started camera=%s ts=%s", self.name, timestamp_ms)
 
+    def _close_and_finalize_active_chunk(self):
+        closed = self._writer.close_tmp()
+        if closed is None:
+            return None
+
+        tmp_path, timestamp_ms = closed
+        analysis = analyze_h264_chunk(str(tmp_path))
+        if analysis.first_idr_frame_index is None:
+            analyzed_skip = analysis.frame_count
+        else:
+            analyzed_skip = analysis.first_idr_frame_index
+
+        if analyzed_skip != self.skip_count:
+            self._logger.info(
+                "skip mismatch camera=%s ts=%s online_skip=%s analyzed_skip=%s",
+                self.name,
+                timestamp_ms,
+                self.skip_count,
+                analyzed_skip,
+            )
+
+        final_path = self._writer.finalize_tmp(timestamp_ms=timestamp_ms, skip_count=analyzed_skip)
+        self._logger.info(
+            "chunk closed camera=%s ts=%s analyzed_frames=%s analyzed_first_idr=%s skip=%s file=%s",
+            self.name,
+            timestamp_ms,
+            analysis.frame_count,
+            analysis.first_idr_frame_index,
+            analyzed_skip,
+            final_path.name,
+        )
+
+        self.current_chunk_timestamp = None
+        return final_path
+
     def _build_pipeline(self) -> Gst.Pipeline:
         launch = (
-            f'rtspsrc location="{self.rtsp_url}" protocols=tcp name=src '
+            'rtspsrc location="{0}" protocols=tcp name=src '
             "! rtph264depay "
             "! h264parse "
             "! appsink name=sink emit-signals=true sync=false max-buffers=1 drop=true"
-        )
+        ).format(self.rtsp_url)
         pipeline = Gst.parse_launch(launch)
         if not isinstance(pipeline, Gst.Pipeline):
-            raise RuntimeError(f"Failed to create pipeline for {self.name}")
+            raise RuntimeError("Failed to create pipeline for {0}".format(self.name))
         return pipeline
 
     def _set_pipeline_playing(self) -> None:

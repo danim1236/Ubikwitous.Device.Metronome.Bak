@@ -58,7 +58,10 @@ Derived values:
 - Active file: `recordings/chunk_{timestamp}_{camera}.tmp`
 - Finalized file: `recordings/chunk_{timestamp}_{camera}_{skip}.h264`
 
-`skip` is the number of pre-IDR frames before the first IDR (NAL type 5) appears in the chunk.
+`skip` is computed **after chunk close** by parsing the finalized `.tmp` Annex-B file.
+
+`skip` is the number of visual H264 frames before the first frame containing an IDR NAL (type 5).
+If no frame in the chunk contains IDR, then `skip = frame_count` for that chunk.
 
 ## Modules
 
@@ -66,7 +69,8 @@ Derived values:
 - `config_loader.py` - YAML loading and validation.
 - `scheduler.py` - global chunk rotation broadcaster.
 - `camera_stream.py` - RTSP ingest, frame handling, reconnect.
-- `h264_utils.py` - Annex-B NAL parsing and IDR detection.
+- `h264_utils.py` - lightweight per-sample Annex-B IDR detection (online diagnostics).
+- `h264_chunk_analyzer.py` - offline Annex-B chunk parser for frame counting and final skip calculation.
 - `chunk_writer.py` - sequential file writing and finalization.
 
 ## Logging
