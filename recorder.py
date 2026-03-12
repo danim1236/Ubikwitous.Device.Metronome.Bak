@@ -30,7 +30,11 @@ def main(argv: list[str]) -> int:
     configure_logging()
     logger = logging.getLogger("recorder")
 
-    config = load_config(argv[1])
+    try:
+        config = load_config(argv[1])
+    except Exception as exc:
+        logger.error("failed to load config path=%s error=%s", argv[1], exc)
+        return 1
 
     Gst.init(None)
 
@@ -55,6 +59,7 @@ def main(argv: list[str]) -> int:
         main_loop.quit()
 
     signal.signal(signal.SIGINT, _shutdown_handler)
+    signal.signal(signal.SIGTERM, _shutdown_handler)
 
     for camera in cameras:
         camera.start()
