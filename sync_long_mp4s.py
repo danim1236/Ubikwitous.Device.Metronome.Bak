@@ -201,13 +201,29 @@ class VideoBackend(ABC):
 
 
 class CpuFrameEncoder(FrameEncoder):
-    def __init__(self, container: Any, stream: Any) -> None:
+    def __init__(self, av_module: Any, container: Any, stream: Any) -> None:
+        self.av = av_module
         self.container = container
         self.stream = stream
         self.closed = False
 
+    def _normalize_frame(self, frame: Any) -> Any:
+        target_format = self.stream.pix_fmt or "yuv420p"
+        if isinstance(frame, self.av.VideoFrame):
+            if frame.format.name != target_format:
+                return frame.reformat(format=target_format)
+            return frame
+        try:
+            return self.av.VideoFrame.from_ndarray(frame, format=target_format)
+        except Exception as exc:
+            raise SyncError(
+                f"CPU encoder expected a PyAV VideoFrame or ndarray compatible with {target_format}, "
+                f"got {type(frame).__name__}"
+            ) from exc
+
     def write_frame(self, frame: Any) -> None:
-        for packet in self.stream.encode(frame):
+        normalized_frame = self._normalize_frame(frame)
+        for packet in self.stream.encode(normalized_frame):
             self.container.mux(packet)
 
     def close(self) -> None:
@@ -237,7 +253,7 @@ class CpuBackend(VideoBackend):
         stream.pix_fmt = pixel_format or "yuv420p"
         stream.options = {"crf": "18", "preset": "medium"}
         stream.time_base = Fraction(1, fps)
-        return CpuFrameEncoder(container, stream)
+        return CpuFrameEncoder(self.av, container, stream)
 
     def decode_summary(self, chunk_path: Path) -> DecodeSummary:
         container = None
@@ -253,15 +269,16 @@ class CpuBackend(VideoBackend):
                 raise SyncError(f"Chunk open/decode failure for {chunk_path}: no video stream")
             for frame in container.decode(video=0):
                 decoded_frames += 1
-                width = frame.width
-                height = frame.height
-                pix_fmt = frame.format.name or pix_fmt
-                last_frame = frame.reformat(format=pix_fmt).to_ndarray().copy()
-            diagnostics = {
-                "source_width": width,
-                "source_height": height,
-                "source_pix_fmt": pix_fmt,
-            }
+                normalized_frame = frame.reformat(format="yuv420p")
+                width = normalized_frame.width
+                height = normalized_frame.height
+                pix_fmt = normalized_frame.format.name or pix_fmt
+                last_frame = normalized_frame.to_ndarray().copy()
+                diagnostics = {
+                    "source_width": frame.width,
+                    "source_height": frame.height,
+                    "source_pix_fmt": frame.format.name,
+                }
             return DecodeSummary(
                 decoded_frames=decoded_frames,
                 last_frame=last_frame,
