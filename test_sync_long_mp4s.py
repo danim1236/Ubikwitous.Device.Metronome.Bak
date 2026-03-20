@@ -100,8 +100,8 @@ def test_normal_aligned_case(tmp_path: Path) -> None:
 
     assert manifest["status"] == "SUCCESS"
     assert manifest["total_output_frames"] == 2
-    assert (config.output_root / "store_store_042_2026-03-19_camA.mp4").read_text(encoding="utf-8") == "frames=a1,a2"
-    rows = list(csv.DictReader((config.output_root / "store_store_042_2026-03-19_sync_batches.tsv").open(), delimiter="\t"))
+    assert (config.output_root / "store_042_2026-03-19_camA.mp4").read_text(encoding="utf-8") == "frames=a1,a2"
+    rows = list(csv.DictReader((config.output_root / "store_042_2026-03-19_sync_batches.tsv").open(), delimiter="\t"))
     assert len(rows) == 2
     assert all(row["padding_frames"] == "0" for row in rows)
 
@@ -123,11 +123,11 @@ def test_intra_batch_padding_case(tmp_path: Path) -> None:
 
     mod.run_sync(config, backend=backend)
 
-    cam_b = (config.output_root / "store_store_042_2026-03-19_camB.mp4").read_text(encoding="utf-8")
-    cam_c = (config.output_root / "store_store_042_2026-03-19_camC.mp4").read_text(encoding="utf-8")
+    cam_b = (config.output_root / "store_042_2026-03-19_camB.mp4").read_text(encoding="utf-8")
+    cam_c = (config.output_root / "store_042_2026-03-19_camC.mp4").read_text(encoding="utf-8")
     assert cam_b == "frames=b1,b2,b2"
     assert cam_c == "frames=c1,c1,c1"
-    anomalies = list(csv.DictReader((config.output_root / "store_store_042_2026-03-19_sync_anomalies.tsv").open(), delimiter="\t"))
+    anomalies = list(csv.DictReader((config.output_root / "store_042_2026-03-19_sync_anomalies.tsv").open(), delimiter="\t"))
     assert [row["camera_id"] for row in anomalies] == ["camB", "camC"]
 
 

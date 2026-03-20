@@ -543,17 +543,23 @@ def build_batches(camera_ids: Sequence[str], chunks_by_camera: Mapping[str, Sequ
     return batch_map
 
 
+def output_name_prefix(config: SyncConfig) -> str:
+    store_token = config.store_id if config.store_id.startswith("store_") else f"store_{config.store_id}"
+    return f"{store_token}_{config.date}"
+
+
 def make_atomic_outputs(config: SyncConfig) -> AtomicOutputs:
+    prefix = output_name_prefix(config)
     temp_video_paths: Dict[str, Path] = {}
     final_video_paths: Dict[str, Path] = {}
     for camera_id in config.camera_ids:
-        final_name = f"store_{config.store_id}_{config.date}_{camera_id}.mp4"
+        final_name = f"{prefix}_{camera_id}.mp4"
         final_path = config.output_root / final_name
         temp_video_paths[camera_id] = config.output_root / f".{final_name}.tmp"
         final_video_paths[camera_id] = final_path
-    manifest_name = f"store_{config.store_id}_{config.date}_sync_manifest.json"
-    batches_name = f"store_{config.store_id}_{config.date}_sync_batches.tsv"
-    anomalies_name = f"store_{config.store_id}_{config.date}_sync_anomalies.tsv"
+    manifest_name = f"{prefix}_sync_manifest.json"
+    batches_name = f"{prefix}_sync_batches.tsv"
+    anomalies_name = f"{prefix}_sync_anomalies.tsv"
     return AtomicOutputs(
         temp_video_paths=temp_video_paths,
         final_video_paths=final_video_paths,
@@ -764,7 +770,7 @@ def build_success_manifest(
     total_output_frames: int,
 ) -> Dict[str, Any]:
     output_videos = {
-        camera_id: f"store_{config.store_id}_{config.date}_{camera_id}.mp4"
+        camera_id: f"{output_name_prefix(config)}_{camera_id}.mp4"
         for camera_id in config.camera_ids
     }
     return {
@@ -794,7 +800,7 @@ def build_failed_manifest(config: SyncConfig, backend_name: str, message: str) -
         "backend": backend_name,
         "camera_ids": list(config.camera_ids),
         "output_videos": {
-            camera_id: f"store_{config.store_id}_{config.date}_{camera_id}.mp4"
+            camera_id: f"{output_name_prefix(config)}_{camera_id}.mp4"
             for camera_id in config.camera_ids
         },
         "total_batches": 0,
